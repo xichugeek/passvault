@@ -1,0 +1,127 @@
+name: 打包 Windows 和 Android
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.47.8'
+
+jobs:
+  test:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: 编译原生加密库（测试用）
+        run: |
+          mkdir -p build/native && cd build/native
+          cmake ../../native -DCMAKE_BUILD_TYPE=Release
+          make -j4
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android APK
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: 准备签名
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "PV_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "PV_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "PV_KEY_ALIAS=passvault" >> "$GITHUB_ENV"
+            echo "使用正式签名"
+          else
+            echo "::warning::未配置签名 Secrets，使用临时 debug 签名（每次安装需先卸载旧版）"
+          fi
+      - run: flutter pub get
+      - run: flutter build apk --release --build-number=${{ github.run_number }}
+      - name: 整理产物
+        run: cp build/app/outputs/flutter-apk/app-release.apk PassVault-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: PassVault-android.apk
+
+  windows:
+    name: Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release --build-number=${{ github.run_number }}
+      - name: 打包 zip
+        shell: pwsh
+        run: |
+          $out = "build/windows/x64/runner/Release"
+          if (!(Test-Path "$out/pv_argon2.dll")) { throw "pv_argon2.dll 缺失" }
+          Compress-Archive -Path "$out/*" -DestinationPath PassVault-windows.zip
+      - name: 制作安装包
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc /DAppVersion=1.0.${{ github.run_number }} installer/windows.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            PassVault-windows.zip
+            PassVault-setup.exe
+
+  release:
+    name: 发布
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: PassVault 1.0.${{ github.run_number }}
+          make_latest: true
+          body: |
+            自动打包 · 提交 ${{ github.sha }}
+
+            - **安卓**：下载 `PassVault-android.apk` 安装
+            - **Windows**：下载 `PassVault-setup.exe` 安装，或解压 `PassVault-windows.zip` 直接运行 `PassVault.exe`
+          files: |
+            PassVault-android.apk
+            PassVault-windows.zip
+            PassVault-setup.exe

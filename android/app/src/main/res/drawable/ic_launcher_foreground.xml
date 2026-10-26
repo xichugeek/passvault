@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 盾牌 -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28 L76,36 L76,52 C76,66 66.5,77.5 54,81 C41.5,77.5 32,66 32,52 L32,36 Z"/>
+    <!-- 钥匙孔 -->
+    <path android:fillColor="#FF3D5AFE"
+        android:pathData="M54,45 C57.866,45 61,48.134 61,52 C61,54.6 59.6,56.86 57.5,58.07 L59,67 L49,67 L50.5,58.07 C48.4,56.86 47,54.6 47,52 C47,48.134 50.134,45 54,45 Z"/>
+</vector>
