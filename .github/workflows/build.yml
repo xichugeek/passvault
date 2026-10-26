@@ -63,7 +63,13 @@ jobs:
             echo "::warning::未配置签名 Secrets，使用临时 debug 签名（每次安装需先卸载旧版）"
           fi
       - run: flutter pub get
-      - run: flutter build apk --release --build-number=${{ github.run_number }}
+      - name: 构建 APK（网络波动时自动重试）
+        run: |
+          for i in 1 2 3; do
+            flutter build apk --release --build-number=${{ github.run_number }} && exit 0
+            echo "::warning::第 $i 次构建失败，30 秒后重试"; sleep 30
+          done
+          exit 1
       - name: 整理产物
         run: cp build/app/outputs/flutter-apk/app-release.apk PassVault-android.apk
       - uses: actions/upload-artifact@v4
