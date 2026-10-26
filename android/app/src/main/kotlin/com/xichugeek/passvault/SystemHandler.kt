@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -92,7 +91,4 @@ class SystemHandler(private val activity: Activity) : MethodChannel.MethodCallHa
             else -> result.notImplemented()
         }
     }
-
-    @Suppress("unused")
-    private fun component() = ComponentName(activity, PassVaultAutofillService::class.java)
 }
