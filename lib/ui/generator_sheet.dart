@@ -4,16 +4,12 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../core/clipboard_service.dart';
 import '../core/password_generator.dart';
+import 'sheet.dart';
 import 'widgets.dart';
 
 /// 弹出密码生成器。[forEntry] 为 true 时显示"使用此密码"按钮并返回结果。
 Future<String?> showGenerator(BuildContext context, {bool forEntry = false}) {
-  return showModalBottomSheet<String>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (_) => GeneratorSheet(forEntry: forEntry),
-  );
+  return showMenuSheet<String>(context, children: (_) => [GeneratorSheet(forEntry: forEntry)]);
 }
 
 class GeneratorSheet extends StatefulWidget {

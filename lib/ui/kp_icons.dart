@@ -1,5 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:kdbx/kdbx.dart';
+
+import 'sheet.dart';
 
 /// KeePass 的 69 个标准图标（按编号顺序）对应的现代图标与配色色相。
 /// sat 为饱和度，0 表示灰色系。
@@ -190,11 +194,17 @@ Future<IconChoice?> pickIcon(BuildContext context, KdbxFile file, {KdbxObject? c
   final customs = file.body.meta.customIcons.values.toList();
   final currentIcon = current?.icon.get();
   final currentCustom = current?.customIconUuid.get();
-  return showModalBottomSheet<IconChoice>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (c) {
+  // 按网格布局估算内容高度，让弹窗一打开就能完整显示全部图标
+  final w = math.min(MediaQuery.sizeOf(context).width, 640.0) - 32;
+  int rowsFor(int n, int cols) => (n / cols).ceil();
+  final cols = (w / (64 + 6)).ceil();
+  final cell = (w - (cols - 1) * 6) / cols;
+  double gridH(int n) => n == 0 ? 0 : rowsFor(n, cols) * cell + (rowsFor(n, cols) - 1) * 6;
+  final height = 48 + gridH(KdbxIcon.values.length) + (customs.isEmpty ? 24 : 56 + gridH(customs.length) + 24);
+  return showListSheet<IconChoice>(
+    context,
+    contentHeight: height,
+    builder: (c, scroll) {
       final text = Theme.of(c).textTheme;
       final scheme = Theme.of(c).colorScheme;
       Widget cell(Widget child, bool selected, VoidCallback onTap, String tip) => Tooltip(
@@ -215,11 +225,7 @@ Future<IconChoice?> pickIcon(BuildContext context, KdbxFile file, {KdbxObject? c
               ),
             ),
           );
-      return DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        maxChildSize: 0.95,
-        builder: (c, scroll) => CustomScrollView(
+      return CustomScrollView(
           controller: scroll,
           slivers: [
             SliverPadding(
@@ -277,7 +283,6 @@ Future<IconChoice?> pickIcon(BuildContext context, KdbxFile file, {KdbxObject? c
             ] else
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
-        ),
       );
     },
   );

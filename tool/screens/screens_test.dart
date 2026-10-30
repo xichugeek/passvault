@@ -5,6 +5,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -71,6 +72,12 @@ Future<VaultSession> buildDemo() async {
   final work = v.createGroup('4.工作', icon: KdbxIcon.Folder);
   v.createGroup('5.服务器', icon: KdbxIcon.NetworkServer);
   v.createGroup('6.其他', icon: KdbxIcon.Folder);
+  for (final n in ['香港金融', '数字货币', '荷兰金融', '海外券商']) {
+    v.createGroup(n, parent: fin);
+  }
+  for (final n in ['7.苹果账户', '8.游戏账户', '9.电报账户']) {
+    v.createGroup(n, icon: KdbxIcon.Apple);
+  }
 
   add(paypal, 'PayPal 主账户', 'james@example.com', icon: KdbxIcon.Money, url: 'https://paypal.com');
   add(paypal, 'PayPal 商家', 'shop@example.com', icon: KdbxIcon.Money);
@@ -141,6 +148,11 @@ void main() {
     state.setSession(s!);
     debugDisableShadows = false;
     tester.view.physicalSize = size * dpr;
+    if (size.width < 600) {
+      // 模拟手机的状态栏和底部三键导航栏
+      tester.view.padding = FakeViewPadding(top: 32 * dpr, bottom: 48 * dpr);
+      tester.view.viewPadding = FakeViewPadding(top: 32 * dpr, bottom: 48 * dpr);
+    }
     tester.view.devicePixelRatio = dpr;
   }
 
@@ -156,9 +168,20 @@ void main() {
     await tester.tap(find.text('新建'));
     await tester.pump(const Duration(milliseconds: 600));
     await shot(tester, 'phone_3_new');
-    await tester.tapAt(const Offset(200, 40));
+    // 滚到最底部，检查最后一项没有被导航栏挡住
+    await tester.drag(find.text('标准条目'), const Offset(0, -1500));
+    await tester.pump(const Duration(milliseconds: 600));
+    await shot(tester, 'phone_3b_new_bottom');
+    await tester.tapAt(const Offset(200, 20));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.longPress(find.text('PayPal'));
+    await tester.pump(const Duration(milliseconds: 600));
+    await shot(tester, 'phone_3c_group_menu');
+    await tester.tapAt(const Offset(200, 20));
     await tester.pump(const Duration(milliseconds: 600));
 
+    await tester.enterText(find.byType(TextField).first, '招商银行');
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('招商银行信用卡'));
     await tester.pump(const Duration(milliseconds: 600));
     await shot(tester, 'phone_4_card');
@@ -175,7 +198,11 @@ void main() {
     await tester.pumpWidget(app(state));
     await tester.tap(find.text('1.金融账户').first);
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byType(TextField).first, '招商银行');
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('招商银行信用卡'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byType(TextField).first, '');
     await tester.pump(const Duration(milliseconds: 400));
     await shot(tester, 'desktop_1');
 
@@ -195,6 +222,58 @@ void main() {
     await tester.tap(find.byTooltip('更换图标'));
     await tester.pump(const Duration(milliseconds: 600));
     await shot(tester, 'desktop_4_icons');
+    state.lock();
+    debugDisableShadows = true;
+  });
+
+  testWidgets('电脑弹窗', (tester) async {
+    await setup(tester, const Size(1600, 950), 1.25);
+    await tester.pumpWidget(app(state));
+    await tester.pump(const Duration(milliseconds: 300));
+    Future<void> close() async {
+      await tester.tapAt(const Offset(30, 30));
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    // 分组菜单（长按左侧分组）
+    await tester.longPress(find.text('1.金融账户').first);
+    await tester.pump(const Duration(milliseconds: 600));
+    await shot(tester, 'popup_1_group_menu');
+
+    // 移动到…（分组选择）
+    await tester.tap(find.text('移动到…'));
+    await tester.pump(const Duration(milliseconds: 800));
+    await shot(tester, 'popup_2_pick_group');
+
+    // 用鼠标把拖动条往下拖，再往上拖
+    final handle = find.byType(MouseRegion).evaluate().where((e) {
+      final w = e.widget as MouseRegion;
+      return w.cursor == SystemMouseCursors.resizeUpDown;
+    }).first;
+    final hc = tester.getCenter(find.byElementPredicate((e) => e == handle));
+    await tester.dragFrom(hc, const Offset(0, 250), kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 400));
+    await shot(tester, 'popup_3_dragged_down');
+    final hc2 = tester.getCenter(find.byElementPredicate((e) => e == handle));
+    await tester.dragFrom(hc2, const Offset(0, -500), kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 400));
+    await shot(tester, 'popup_4_dragged_up');
+    await close();
+
+    // 条目菜单
+    await tester.tap(find.text('1.金融账户').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.longPress(find.text('2.富途证券'));
+    await tester.pump(const Duration(milliseconds: 600));
+    await shot(tester, 'popup_5_entry_menu');
+    await close();
+
+    // 新建菜单
+    await tester.tap(find.text('新建'));
+    await tester.pump(const Duration(milliseconds: 800));
+    await shot(tester, 'popup_6_new');
+    await close();
+
     state.lock();
     debugDisableShadows = true;
   });

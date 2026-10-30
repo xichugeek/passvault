@@ -8,6 +8,7 @@ import 'entry_detail.dart';
 import 'kp_icons.dart';
 import 'save_helper.dart';
 import 'widgets.dart';
+import 'sheet.dart';
 
 /// 回收站内容（电脑端嵌在中间栏，手机端作为独立页面）
 class RecycleBinView extends StatelessWidget {
@@ -67,7 +68,7 @@ class RecycleBinView extends StatelessWidget {
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 32),
+      padding: pagePadding(context, h: 8, top: 0),
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),

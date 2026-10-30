@@ -7,6 +7,7 @@ import '../core/vault.dart';
 import 'entry_edit_page.dart';
 import 'kp_icons.dart';
 import 'save_helper.dart';
+import 'sheet.dart';
 import 'widgets.dart';
 
 /// 输入名称
@@ -44,15 +45,10 @@ Future<KdbxGroup?> pickGroup(
   KdbxGroup? current,
 }) {
   final items = [vault.root, ...vault.groups];
-  return showModalBottomSheet<KdbxGroup>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (c) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.6,
-      maxChildSize: 0.95,
-      builder: (c, scroll) => Column(
+  return showListSheet<KdbxGroup>(
+    context,
+    contentHeight: 56.0 + items.length * 48 + 24,
+    builder: (c, scroll) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
@@ -71,9 +67,12 @@ Future<KdbxGroup?> pickGroup(
                 return ListTile(
                   enabled: ok,
                   selected: g == current,
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -1),
                   contentPadding: EdgeInsets.only(left: 12.0 + depth * 20, right: 12),
-                  leading: KpIcon.of(g, size: 34, dimmed: !ok),
-                  title: Text(vault.groupName(g)),
+                  leading: KpIcon.of(g, size: 30, dimmed: !ok),
+                  title: Text(vault.groupName(g), style: Theme.of(c).textTheme.bodyLarge?.copyWith(
+                      color: ok ? null : Theme.of(c).disabledColor)),
                   trailing: g == current ? const Icon(Icons.check) : null,
                   onTap: ok ? () => Navigator.pop(c, g) : null,
                 );
@@ -82,7 +81,6 @@ Future<KdbxGroup?> pickGroup(
           ),
         ],
       ),
-    ),
   );
 }
 
@@ -188,14 +186,9 @@ Future<void> showGroupMenu(
   final isRoot = g == v.root;
   final siblings = g.parent == null ? <KdbxGroup>[] : v.childGroups(g.parent!);
   final idx = siblings.indexOf(g);
-  final action = await showModalBottomSheet<String>(
-    context: context,
-    useSafeArea: true,
-    builder: (c) => SafeArea(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+  final action = await showMenuSheet<String>(
+    context,
+    children: (c) => [
             ListTile(
               leading: KpIcon.of(g, size: 36),
               title: Text(v.groupName(g), style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -242,9 +235,6 @@ Future<void> showGroupMenu(
               ),
             ],
           ],
-        ),
-      ),
-    ),
   );
   if (action == null || !context.mounted) return;
   switch (action) {
@@ -277,55 +267,80 @@ Future<void> showNewItemSheet(
   void Function(KdbxEntry created)? onEntryCreated,
 }) async {
   final templates = Templates(s.vault).available;
-  final picked = await showModalBottomSheet<Object>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (c) {
+  // 选项：标准条目 + 模板 + 分组
+  final options = <({Widget icon, String title, String subtitle, Object result})>[
+    (icon: const KpIcon(icon: KdbxIcon.Key, size: 40), title: '标准条目', subtitle: '用户名、密码、网址、备注', result: 'standard'),
+    for (final t in templates)
+      (
+        icon: KpIcon(icon: t.icon, custom: t.entry?.customIcon, size: 40),
+        title: t.title,
+        subtitle: t.fields
+            .where((f) => f.type != TFieldType.divider)
+            .map((f) => f.displayLabel)
+            .take(4)
+            .join('、'),
+        result: t,
+      ),
+    (icon: const KpIcon(icon: KdbxIcon.Folder, size: 40), title: '分组', subtitle: '在当前位置新建一个分组', result: 'group'),
+  ];
+  // 宽屏（电脑、平板）两列排列，一屏显示完整
+  final twoCols = MediaQuery.sizeOf(context).width >= 520;
+  final rows = twoCols ? (options.length / 2).ceil() : options.length;
+  final picked = await showListSheet<Object>(
+    context,
+    contentHeight: 76.0 + rows * (twoCols ? 68 : 72) + 24,
+    builder: (c, scroll) {
       final text = Theme.of(c).textTheme;
-      Widget tile(Widget icon, String title, Object result, {String? subtitle}) => ListTile(
-            leading: icon,
-            title: Text(title),
-            subtitle: subtitle == null ? null : Text(subtitle),
-            onTap: () => Navigator.pop(c, result),
-          );
-      return DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.75,
-        maxChildSize: 0.95,
-        builder: (c, scroll) => ListView(
-          controller: scroll,
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-              child: Text('新建', style: text.titleLarge),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Text('保存到：${s.vault.groupName(group)}', style: text.bodySmall),
-            ),
-            tile(const KpIcon(icon: KdbxIcon.Key, size: 40), '标准条目', 'standard',
-                subtitle: '用户名、密码、网址、备注'),
-            for (final t in templates)
-              tile(
-                KpIcon(
-                  icon: t.icon,
-                  custom: t.entry?.customIcon,
-                  size: 40,
-                ),
-                t.title,
-                t,
-                subtitle: t.fields
-                    .where((f) => f.type != TFieldType.divider)
-                    .map((f) => f.displayLabel)
-                    .take(4)
-                    .join('、'),
+      Widget tile(({Widget icon, String title, String subtitle, Object result}) o) => InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => Navigator.pop(c, o.result),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Row(
+                children: [
+                  o.icon,
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(o.title, style: text.titleSmall?.copyWith(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text(o.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(color: Theme.of(c).colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            const Divider(),
-            tile(const KpIcon(icon: KdbxIcon.Folder, size: 40), '分组', 'group', subtitle: '在当前位置新建一个分组'),
-          ],
-        ),
+            ),
+          );
+      return ListView(
+        controller: scroll,
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+            child: Text('新建', style: text.titleLarge),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Text('保存到：${s.vault.groupName(group)}', style: text.bodySmall),
+          ),
+          if (twoCols)
+            for (var i = 0; i < options.length; i += 2)
+              Row(
+                children: [
+                  Expanded(child: tile(options[i])),
+                  const SizedBox(width: 8),
+                  Expanded(child: i + 1 < options.length ? tile(options[i + 1]) : const SizedBox()),
+                ],
+              )
+          else
+            for (final o in options) tile(o),
+        ],
       );
     },
   );

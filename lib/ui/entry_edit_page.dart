@@ -11,6 +11,7 @@ import 'generator_sheet.dart';
 import 'kp_icons.dart';
 import 'save_helper.dart';
 import 'widgets.dart';
+import 'sheet.dart';
 
 /// 新建或编辑条目。entry 为 null 时新建（可指定模板）。保存后返回该条目。
 class EntryEditPage extends StatefulWidget {
@@ -450,7 +451,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+            padding: pagePadding(context, bottom: 40),
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,

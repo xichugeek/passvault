@@ -87,6 +87,8 @@ ThemeData buildTheme(Color seed, Brightness brightness) {
     ),
     bottomSheetTheme: const BottomSheetThemeData(
       showDragHandle: true,
+      // 电脑上弹窗不要铺满整个窗口宽度
+      constraints: BoxConstraints(maxWidth: 640),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

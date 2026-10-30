@@ -17,6 +17,7 @@ import 'kp_icons.dart';
 import 'recycle_bin_page.dart';
 import 'save_helper.dart';
 import 'settings_page.dart';
+import 'sheet.dart';
 import 'widgets.dart';
 
 /// 已解锁后的主界面。
@@ -398,14 +399,9 @@ class _VaultPageState extends State<VaultPage> {
 
   void _entryMenu(KdbxEntry e) {
     final hasTotp = TotpConfig.fromFields(e.allFields) != null;
-    showModalBottomSheet(
-      context: context,
-      useSafeArea: true,
-      builder: (c) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+    showMenuSheet<void>(
+      context,
+      children: (c) => [
               ListTile(
                 leading: KpIcon.of(e, size: 36),
                 title: Text(e.title.isEmpty ? '（无标题）' : e.title, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -475,9 +471,6 @@ class _VaultPageState extends State<VaultPage> {
                 },
               ),
             ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -621,7 +614,7 @@ class _GroupListing extends StatelessWidget {
       ));
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 96),
+      padding: pagePadding(context, h: 8, top: 0, bottom: 96),
       children: children,
     );
   }

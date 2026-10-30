@@ -13,6 +13,7 @@ import 'group_actions.dart';
 import 'kp_icons.dart';
 import 'save_helper.dart';
 import 'widgets.dart';
+import 'sheet.dart';
 
 /// 条目详情内容（宽屏右侧面板与窄屏独立页面共用）
 class EntryDetailView extends StatefulWidget {
@@ -277,7 +278,7 @@ class EntryDetailViewState extends State<EntryDetailView> {
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: pagePadding(context),
       children: [
         if (inBin)
           Container(

@@ -12,6 +12,7 @@ import '../platform/system_bridge.dart';
 import 'save_helper.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import 'sheet.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -130,7 +131,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+            padding: pagePadding(context, top: 0),
             children: [
               SectionCard(title: '外观', children: [
                 Padding(
