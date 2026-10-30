@@ -177,9 +177,12 @@ class KdbxFile {
     }
   }
 
+  /// PassVault: name used when a recycle bin has to be created.
+  static String recycleBinName = 'Trash';
+
   KdbxGroup _createRecycleBin() {
     body.meta.recycleBinEnabled.set(true);
-    final group = createGroup(parent: body.rootGroup, name: 'Trash');
+    final group = createGroup(parent: body.rootGroup, name: recycleBinName);
     group.icon.set(KdbxIcon.TrashBin);
     group.enableAutoType.set(false);
     group.enableSearching.set(false);

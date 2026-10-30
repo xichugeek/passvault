@@ -190,7 +190,11 @@ class IconNode extends KdbxSubTextNode<KdbxIcon> {
   IconNode(super.node, super.name);
 
   @override
-  KdbxIcon decode(String value) => KdbxIcon.values[int.tryParse(value)!];
+  KdbxIcon decode(String value) {
+    // PassVault: tolerate out-of-range icon ids written by other clients.
+    final i = int.tryParse(value.trim()) ?? 0;
+    return KdbxIcon.values[i >= 0 && i < KdbxIcon.values.length ? i : 0];
+  }
 
   @override
   String encode(KdbxIcon value) => value.index.toString();

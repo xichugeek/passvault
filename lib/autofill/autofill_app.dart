@@ -10,9 +10,9 @@ import '../core/session.dart';
 import '../core/settings.dart';
 import '../core/totp.dart';
 import '../core/vault.dart';
+import '../ui/kp_icons.dart';
 import '../ui/theme.dart';
 import '../ui/unlock_page.dart';
-import '../ui/widgets.dart';
 
 /// 一次自动填充请求
 class FillRequest {
@@ -318,7 +318,7 @@ class _PickerState extends State<_Picker> {
     final scheme = Theme.of(context).colorScheme;
 
     Widget tile(KdbxEntry e, {required bool matched}) => ListTile(
-          leading: EntryAvatar(title: e.title),
+          leading: KpIcon.of(e, size: 40),
           title: Text(e.title.isEmpty ? '（无标题）' : e.title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(e.userName.isEmpty ? '（无用户名）' : e.userName,
               maxLines: 1, overflow: TextOverflow.ellipsis),

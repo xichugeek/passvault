@@ -222,3 +222,21 @@ extension KdbxGroupInternal on KdbxGroup {
     });
   }
 }
+
+/// PassVault: public helpers that need access to the group's internals.
+extension KdbxGroupOrder on KdbxGroup {
+  /// PassVault: change the position of a direct child group (keeps
+  /// KeePass' user-defined group order).
+  void reorderGroup(KdbxGroup group, int newIndex) {
+    final old = _groups.indexOf(group);
+    if (old < 0) {
+      throw StateError('$group is not a child of $this');
+    }
+    final target = newIndex.clamp(0, _groups.length - 1);
+    if (target == old) return;
+    modify(() {
+      _groups.removeAt(old);
+      _groups.insert(target, group);
+    });
+  }
+}

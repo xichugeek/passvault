@@ -197,6 +197,10 @@ abstract class KdbxObject extends KdbxNode {
 
   KdbxUuid get uuid => _uuid.get()!;
 
+  /// PassVault: give a freshly created object a fixed uuid (used for entry
+  /// templates, which other KeePass clients identify by uuid).
+  void overrideUuid(KdbxUuid uuid) => _uuid.set(uuid);
+
   UuidNode get _uuid => UuidNode(this, KdbxXml.NODE_UUID);
 
   IconNode get icon => IconNode(this, 'IconID');

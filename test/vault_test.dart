@@ -7,6 +7,7 @@ import 'package:kdbx/kdbx.dart';
 import 'package:passvault/core/argon2_native.dart';
 import 'package:passvault/core/matcher.dart';
 import 'package:passvault/core/password_generator.dart';
+import 'package:passvault/core/templates.dart';
 import 'package:passvault/core/totp.dart';
 import 'package:passvault/core/vault.dart';
 import 'package:pointycastle/export.dart' as pc;
@@ -285,6 +286,141 @@ void main() {
       }
       expect(PasswordGenerator.strengthLevel('123456'), 0);
       expect(PasswordGenerator.strengthLevel(PasswordGenerator.generate(const GeneratorOptions())), 4);
+    });
+  });
+
+  group('分组', () {
+    Future<Vault> reopen(Vault v) async =>
+        Vault.open(await v.save(), Vault.credentials('pw-12345678', null));
+
+    test('保持原有顺序；条目自然排序；上下移动后保存仍保持', () async {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      for (final g in v.childGroups(v.root).toList()) {
+        v.deleteGroup(g);
+      }
+      v.emptyRecycleBin();
+      final a = v.createGroup('3.工作');
+      v.createGroup('1.金融账户');
+      v.createGroup('2.邮箱账户');
+      for (final t in ['10.淘宝', '2.京东', '1.支付宝']) {
+        v.createEntry(a).setStr(Fields.title, t);
+      }
+      expect(v.childGroups(v.root).map((g) => g.name.get()), ['3.工作', '1.金融账户', '2.邮箱账户']);
+      expect(v.entriesIn(a).map((e) => e.title), ['1.支付宝', '2.京东', '10.淘宝']);
+      expect(v.shiftGroup(a, 1), isTrue);
+      expect(v.shiftGroup(a, 1), isTrue);
+      expect(v.shiftGroup(a, 1), isFalse);
+      final v2 = await reopen(v);
+      expect(v2.childGroups(v2.root).map((g) => g.name.get()), ['1.金融账户', '2.邮箱账户', '3.工作']);
+    });
+
+    test('子分组、移动、回收站、恢复、清空', () async {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      final fin = v.createGroup('金融');
+      final pay = v.createGroup('PayPal', parent: fin);
+      final e = v.createEntry(pay)..setStr(Fields.title, 'paypal');
+      expect(v.countIn(fin), 1);
+      expect(v.depth(pay), 1);
+      expect(v.groupPath(pay), '金融 / PayPal');
+      expect(v.canMoveGroup(fin, pay), isFalse, reason: '不能移到自己的子分组');
+      final other = v.createGroup('其它');
+      v.moveEntry(e, other);
+      expect(v.entriesIn(other), [e]);
+      v.deleteGroup(fin);
+      expect(v.recycleBin!.name.get(), '回收站');
+      expect(v.groups, isNot(contains(fin)));
+      expect(v.isHidden(pay), isTrue);
+      v.restore(fin);
+      expect(v.groups, contains(pay));
+      v.deleteEntry(e);
+      expect(v.entries, isNot(contains(e)));
+      expect(v.recycledEntries, [e]);
+      v.emptyRecycleBin();
+      expect(v.recycledEntries, isEmpty);
+      final v2 = await reopen(v);
+      expect(v2.entries.where((x) => x.title == 'paypal'), isEmpty);
+    });
+
+    test('超出范围的图标编号不会导致打不开', () async {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      final e = v.createEntry(v.root)..setStr(Fields.title, 'x');
+      e.icon.set(KdbxIcon.Money);
+      final v2 = await reopen(v);
+      expect(v2.entries.single.icon.get(), KdbxIcon.Money);
+    });
+
+    test('过期时间保存后保留', () async {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      final e = v.createEntry(v.root)..setStr(Fields.title, 'card');
+      e.expiry = DateTime(2030, 5, 31, 23, 59);
+      final v2 = await reopen(v);
+      final e2 = v2.entries.single;
+      expect(e2.expiry, DateTime(2030, 5, 31, 23, 59));
+      expect(e2.isExpired, isFalse);
+    });
+  });
+
+  group('模板（兼容 Keepass2Android）', () {
+    test('内置模板写入库中：固定 UUID、_etm_ 字段、模板分组', () async {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      final t = Templates(v);
+      expect(t.existing, isEmpty);
+      final cc = t.available.firstWhere((x) => x.builtinId == 'creditcard');
+      final e = t.createFrom(cc, v.root);
+      e.setStr(Fields.title, '招商银行信用卡');
+      e.setStr('卡号', '6225 0000 0000 0000');
+      e.setStr('CVV', '123', protect: true);
+      e.expiry = DateTime(2029, 12, 31);
+
+      final saved = await v.save();
+      final v2 = await Vault.open(saved, Vault.credentials('pw-12345678', null));
+      final t2 = Templates(v2);
+      expect(v2.templatesGroup, isNotNull);
+      expect(v2.templatesGroup!.name.get(), '模板');
+      expect(v2.groups, isNot(contains(v2.templatesGroup)), reason: '模板分组不在普通列表里');
+      expect(v2.entries.map((x) => x.title), ['招商银行信用卡'], reason: '模板条目不参与搜索/填充');
+      final tplEntry = v2.templatesGroup!.entries.single;
+      expect(uuidToHex(tplEntry.uuid), '49DD48DBFF149445B3392CE90EA75309');
+      expect(tplEntry.str('_etm_template'), '1');
+      expect(tplEntry.str('_etm_type_CVV'), 'Protected Inline');
+      expect(tplEntry.str('_etm_type_@exp_date'), 'Date Time');
+      final card = v2.entries.single;
+      expect(card.str('_etm_template_uuid'), '49DD48DBFF149445B3392CE90EA75309');
+      final tpl = t2.templateOf(card)!;
+      expect(tpl.title, '信用卡');
+      expect(tpl.fields.map((f) => f.key), ['卡号', 'CVV', 'PIN', '持卡人', '@exp_date']);
+      expect(card.icon.get(), KdbxIcon.Homebanking);
+      expect(card.visibleCustomFields.keys, isNot(contains('_etm_template_uuid')));
+      // 已在库中的模板不会重复出现
+      expect(t2.available.where((x) => x.uuidHex == '49DD48DBFF149445B3392CE90EA75309').length, 1);
+      // 再用同一模板新建不会重复创建模板条目
+      t2.createFrom(t2.available.firstWhere((x) => x.title == '信用卡'), v2.root);
+      expect(v2.templatesGroup!.entries.length, 1);
+    });
+
+    test('读取 Keepass2Android 写入的模板（字段顺序、类型、下拉选项、分隔线）', () {
+      final v = Vault.create('t', Vault.credentials('pw-12345678', null));
+      final g = Templates(v).ensureTemplatesGroup();
+      final e = v.createEntry(g)..setStr(Fields.title, '护照');
+      final f = <String, String>{
+        '_etm_template': '1',
+        '_etm_title_护照号': '护照号', '_etm_type_护照号': 'Inline', '_etm_position_护照号': '1',
+        '_etm_title_国籍': '国籍', '_etm_type_国籍': 'Listbox', '_etm_position_国籍': '2', '_etm_options_国籍': '中国,美国,日本',
+        '_etm_title_sep': '有效期', '_etm_type_sep': 'Divider', '_etm_position_sep': '3',
+        '_etm_title_@exp_date': '@exp_date', '_etm_type_@exp_date': 'Date Time', '_etm_position_@exp_date': '4',
+        '_etm_title_已续签': '已续签', '_etm_type_已续签': 'Checkbox', '_etm_position_已续签': '5',
+        '_etm_title_Password': 'Password', '_etm_type_Password': 'Protected Inline', '_etm_position_Password': '0',
+      };
+      f.forEach(e.setStr);
+      final t = Templates.parse(e)!;
+      expect(t.fields.map((x) => x.key), ['Password', '护照号', '国籍', 'sep', '@exp_date', '已续签']);
+      expect(t.fields[2].type, TFieldType.listbox);
+      expect(t.fields[2].options, ['中国', '美国', '日本']);
+      expect(t.fields[3].type, TFieldType.divider);
+      expect(t.fields[4].displayLabel, '有效期至');
+      expect(t.fields[5].type, TFieldType.checkbox);
+      expect(t.fields[0].type.isProtected, isTrue);
+      expect(Templates(v).available.first.title, '护照');
     });
   });
 }

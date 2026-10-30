@@ -88,34 +88,83 @@ class Vault {
 
   KdbxGroup? get recycleBin => file.recycleBin;
 
+  /// 模板分组（KeePass 元数据 EntryTemplatesGroup，Keepass2Android 也用它）
+  KdbxGroup? get templatesGroup {
+    final id = file.body.meta.entryTemplatesGroup.get();
+    if (id == null) return null;
+    for (final g in root.getAllGroups()) {
+      if (g.uuid == id) return g;
+    }
+    return null;
+  }
+
   bool get isDirty => file.isDirty;
 
-  bool _inRecycleBin(KdbxObject o) {
-    final bin = recycleBin;
-    if (bin == null) return false;
+  static bool _under(KdbxObject o, KdbxGroup? ancestor) {
+    if (ancestor == null) return false;
     KdbxGroup? p = o is KdbxGroup ? o : o.parent;
     while (p != null) {
-      if (p.uuid == bin.uuid) return true;
+      if (p.uuid == ancestor.uuid) return true;
       p = p.parent;
     }
     return false;
   }
 
-  /// 所有有效条目（不含回收站）
+  bool inRecycleBin(KdbxObject o) => _under(o, recycleBin);
+
+  bool inTemplates(KdbxObject o) => _under(o, templatesGroup);
+
+  /// 回收站、模板分组不参与普通浏览、搜索和自动填充
+  bool isHidden(KdbxObject o) => inRecycleBin(o) || inTemplates(o);
+
+  bool isSpecialGroup(KdbxGroup g) =>
+      g.uuid == recycleBin?.uuid || g.uuid == templatesGroup?.uuid;
+
+  /// 所有有效条目（不含回收站与模板）
   List<KdbxEntry> get entries => root
       .getAllEntries()
-      .where((e) => !e.isHistoryEntry && !_inRecycleBin(e))
+      .where((e) => !e.isHistoryEntry && !isHidden(e))
       .toList();
 
-  /// 所有分组（不含根组与回收站），按路径排序
+  /// 所有分组（不含根组、回收站、模板），按树的先序遍历，保持原有顺序
   List<KdbxGroup> get groups {
-    final list = root
-        .getAllGroups()
-        .where((g) => g != root && !_inRecycleBin(g))
-        .toList();
-    list.sort((a, b) => groupPath(a).compareTo(groupPath(b)));
+    final out = <KdbxGroup>[];
+    void walk(KdbxGroup g) {
+      for (final c in childGroups(g)) {
+        out.add(c);
+        walk(c);
+      }
+    }
+
+    walk(root);
+    return out;
+  }
+
+  /// 直接子分组（保持 KeePass 文件中的顺序）
+  List<KdbxGroup> childGroups(KdbxGroup g) =>
+      g.groups.where((c) => !isSpecialGroup(c)).toList();
+
+  /// 分组内直接包含的条目（按标题自然排序）
+  List<KdbxEntry> entriesIn(KdbxGroup g) {
+    final list = g.entries.where((e) => !e.isHistoryEntry).toList();
+    list.sort((a, b) => naturalCompare(a.title, b.title));
     return list;
   }
+
+  /// 分组（含子分组）中的条目总数
+  int countIn(KdbxGroup g) {
+    var n = g.entries.length;
+    for (final c in childGroups(g)) {
+      n += countIn(c);
+    }
+    return n;
+  }
+
+  /// 分组深度（根的直接子分组为 0）
+  int depth(KdbxGroup g) => g.breadcrumbs.length - 2;
+
+  String groupName(KdbxGroup g) =>
+      g == root ? name : (g.name.get()?.trim().isNotEmpty == true ? g.name.get()! : '（未命名分组）');
 
   String groupPath(KdbxGroup g) => g.breadcrumbs
       .where((x) => x != root)
@@ -125,10 +174,7 @@ class Vault {
   List<KdbxEntry> search(String query, {KdbxGroup? inGroup}) {
     final base = inGroup == null
         ? entries
-        : inGroup
-            .getAllEntries()
-            .where((e) => !_inRecycleBin(e))
-            .toList();
+        : inGroup.getAllEntries().where((e) => !e.isHistoryEntry && !isHidden(e)).toList();
     final q = query.trim().toLowerCase();
     final list = q.isEmpty
         ? base
@@ -139,11 +185,13 @@ class Vault {
               e.str(Fields.url),
               e.str(Fields.notes),
               e.tags.get() ?? '',
+              if (e.parent != null) e.parent!.name.get() ?? '',
+              for (final kv in e.visibleCustomFields.entries)
+                if (!e.isProtected(kv.key)) kv.value,
             ].join('\n').toLowerCase();
             return q.split(RegExp(r'\s+')).every(hay.contains);
           }).toList();
-    list.sort((a, b) =>
-        a.str(Fields.title).toLowerCase().compareTo(b.str(Fields.title).toLowerCase()));
+    list.sort((a, b) => naturalCompare(a.title, b.title));
     return list;
   }
 
@@ -153,13 +201,101 @@ class Vault {
     return e;
   }
 
-  KdbxGroup createGroup(String name, {KdbxGroup? parent}) =>
-      file.createGroup(parent: parent ?? root, name: name);
+  KdbxGroup createGroup(String name, {KdbxGroup? parent, KdbxIcon? icon}) {
+    final g = file.createGroup(parent: parent ?? root, name: name);
+    if (icon != null) g.icon.set(icon);
+    return g;
+  }
 
-  /// 删除条目：移入回收站（与 KeePass 行为一致）
-  void deleteEntry(KdbxEntry e) => file.deleteEntry(e);
+  /// 删除条目：移入回收站；已在回收站中则永久删除
+  void deleteEntry(KdbxEntry e) {
+    if (inRecycleBin(e)) {
+      file.deletePermanently(e);
+    } else {
+      KdbxFile.recycleBinName = '回收站';
+      file.deleteEntry(e);
+    }
+  }
 
-  void moveEntry(KdbxEntry e, KdbxGroup to) => file.move(e, to);
+  /// 删除分组（连同其中的条目）：移入回收站；已在回收站中则永久删除
+  void deleteGroup(KdbxGroup g) {
+    if (g == root || isSpecialGroup(g)) {
+      throw StateError('不能删除这个分组');
+    }
+    if (inRecycleBin(g)) {
+      file.deletePermanently(g);
+    } else {
+      KdbxFile.recycleBinName = '回收站';
+      file.deleteGroup(g);
+    }
+  }
+
+  void moveEntry(KdbxEntry e, KdbxGroup to) {
+    if (e.parent == to) return;
+    file.move(e, to);
+  }
+
+  /// 能否把分组 g 移动到 to（不能移到自身或自己的子分组里）
+  bool canMoveGroup(KdbxGroup g, KdbxGroup to) {
+    if (g == root || isSpecialGroup(g)) return false;
+    if (g.parent == to) return false;
+    return !_under(to, g);
+  }
+
+  void moveGroup(KdbxGroup g, KdbxGroup to) {
+    if (!canMoveGroup(g, to)) throw StateError('不能移动到这个位置');
+    file.move(g, to);
+  }
+
+  /// 在同级分组中上移（-1）或下移（+1）
+  bool shiftGroup(KdbxGroup g, int delta) {
+    final parent = g.parent;
+    if (parent == null) return false;
+    final siblings = parent.groups;
+    final i = siblings.indexOf(g);
+    var j = i + delta;
+    // 跳过回收站、模板等特殊分组
+    while (j >= 0 && j < siblings.length && isSpecialGroup(siblings[j])) {
+      j += delta;
+    }
+    if (j < 0 || j >= siblings.length) return false;
+    parent.reorderGroup(g, j);
+    return true;
+  }
+
+  /// 回收站中的直接内容
+  List<KdbxGroup> get recycledGroups => recycleBin?.groups.toList() ?? const [];
+  List<KdbxEntry> get recycledEntries {
+    final list = recycleBin?.entries.toList() ?? <KdbxEntry>[];
+    list.sort((a, b) => naturalCompare(a.title, b.title));
+    return list;
+  }
+
+  /// 从回收站恢复到原来的分组（找不到则放回根目录）
+  void restore(KdbxObject o) {
+    final prevId = o.previousParentGroup.get();
+    KdbxGroup target = root;
+    if (prevId != null) {
+      for (final g in root.getAllGroups()) {
+        if (g.uuid == prevId && !inRecycleBin(g)) {
+          target = g;
+          break;
+        }
+      }
+    }
+    file.move(o, target);
+  }
+
+  void emptyRecycleBin() {
+    final bin = recycleBin;
+    if (bin == null) return;
+    for (final g in bin.groups.toList()) {
+      file.deletePermanently(g);
+    }
+    for (final e in bin.entries.toList()) {
+      file.deletePermanently(e);
+    }
+  }
 
   KdbxEntry? findEntry(String uuid) {
     for (final e in entries) {
@@ -169,6 +305,20 @@ class Vault {
   }
 
   void dispose() => file.dispose();
+}
+
+/// 自然排序：让 "2.xxx" 排在 "10.xxx" 前面，忽略大小写
+int naturalCompare(String a, String b) {
+  final ra = RegExp(r'(\d+)|(\D+)');
+  final ta = ra.allMatches(a.toLowerCase()).map((m) => m.group(0)!).toList();
+  final tb = ra.allMatches(b.toLowerCase()).map((m) => m.group(0)!).toList();
+  for (var i = 0; i < ta.length && i < tb.length; i++) {
+    final x = ta[i], y = tb[i];
+    final nx = int.tryParse(x), ny = int.tryParse(y);
+    final c = (nx != null && ny != null) ? nx.compareTo(ny) : x.compareTo(y);
+    if (c != 0) return c;
+  }
+  return ta.length.compareTo(tb.length);
 }
 
 /// 条目字段读写的便捷方法
@@ -194,6 +344,18 @@ extension EntryX on KdbxEntry {
   String get url => str(Fields.url);
   String get notes => str(Fields.notes);
 
+  /// 可见的自定义字段（排除标准字段与模板内部字段 _etm_*）
+  Map<String, String> get visibleCustomFields {
+    final m = <String, String>{};
+    for (final e in stringEntries) {
+      final k = e.key.key;
+      if (!Fields.standard.contains(k) && !k.startsWith('_etm_')) {
+        m[k] = e.value?.getText() ?? '';
+      }
+    }
+    return m;
+  }
+
   /// 自定义字段（非标准字段）
   Map<String, String> get customFields {
     final m = <String, String>{};
@@ -213,4 +375,22 @@ extension EntryX on KdbxEntry {
       };
 
   DateTime? get modified => times.lastModificationTime.get()?.toLocal();
+
+  /// 过期时间（未设置过期则为 null）
+  DateTime? get expiry =>
+      times.expires.get() == true ? times.expiryTime.get()?.toLocal() : null;
+
+  set expiry(DateTime? d) {
+    if (d == null) {
+      if (times.expires.get() == true) times.expires.set(false);
+    } else {
+      times.expires.set(true);
+      times.expiryTime.set(d.toUtc());
+    }
+  }
+
+  bool get isExpired {
+    final e = expiry;
+    return e != null && e.isBefore(DateTime.now());
+  }
 }
