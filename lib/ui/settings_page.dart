@@ -302,7 +302,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
               ]),
               const SizedBox(height: 8),
               Text(
-                '所有数据只保存在你的 .kdbx 文件中，PassVault 不连接任何服务器。',
+                '所有数据只保存在你的密码库文件中，PassVault 不连接任何服务器。',
                 textAlign: TextAlign.center,
                 style: text.bodySmall,
               ),

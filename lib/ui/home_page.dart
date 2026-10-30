@@ -28,10 +28,10 @@ class HomePage extends StatelessWidget {
           s = SafSource(uri: r['uri']!, name: r['name'] ?? 'vault.kdbx', provider: r['provider'] ?? '');
         }
       } else {
+        // 显示所有文件：KeePass 密码库不一定带 .kdbx 后缀（例如 Keepass2Android 创建的文件）
         final r = await FilePicker.pickFile(
           dialogTitle: '打开 KeePass 密码库',
-          type: FileType.custom,
-          allowedExtensions: const ['kdbx'],
+          type: FileType.any,
         );
         final path = r?.path;
         if (path != null) s = LocalFileSource(path);
@@ -144,8 +144,8 @@ class HomePage extends StatelessWidget {
                         Expanded(
                           child: Text(
                             Platform.isAndroid
-                                ? '同步提示：点"打开密码库"，在左上角菜单选择 Google Drive，找到你的 .kdbx 文件即可。修改会自动写回 Google Drive，电脑上的 PassVault 会读到同一个文件。'
-                                : '同步提示：安装"Google Drive 电脑版"，打开同步文件夹（通常是 G:\\我的云端硬盘）里的 .kdbx 文件即可，修改会自动同步到手机。',
+                                ? '同步提示：点"打开密码库"，在左上角菜单选择 Google Drive，找到你的密码库文件即可。修改会自动写回 Google Drive，电脑上的 PassVault 会读到同一个文件。'
+                                : '同步提示：安装"Google Drive 电脑版"，打开同步文件夹（通常是 G:\\我的云端硬盘）里的密码库文件即可（有没有 .kdbx 后缀都可以），修改会自动同步到手机。',
                             style: text.bodySmall,
                           ),
                         ),

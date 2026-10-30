@@ -4,6 +4,12 @@ import 'package:kdbx/kdbx.dart';
 
 import 'argon2_native.dart';
 
+class NotKeePassFile implements Exception {
+  const NotKeePassFile();
+  @override
+  String toString() => '这个文件不是 KeePass 密码库，请选择你的密码库文件（可以没有 .kdbx 后缀）';
+}
+
 /// KeePass 中常用的标准字段名
 class Fields {
   static const title = 'Title';
@@ -44,7 +50,20 @@ class Vault {
         keyFile,
       );
 
+  /// KeePass 文件签名（KDBX 2.x 起相同）
+  static const _signature = [0x03, 0xD9, 0xA2, 0x9A, 0x67, 0xFB, 0x4B, 0xB5];
+
+  /// 根据文件头判断是不是 KeePass 密码库（与文件名后缀无关）
+  static bool looksLikeKdbx(Uint8List bytes) {
+    if (bytes.length < _signature.length) return false;
+    for (var i = 0; i < _signature.length; i++) {
+      if (bytes[i] != _signature[i]) return false;
+    }
+    return true;
+  }
+
   static Future<Vault> open(Uint8List bytes, Credentials credentials) async {
+    if (!looksLikeKdbx(bytes)) throw const NotKeePassFile();
     final file = await format.read(bytes, credentials);
     return Vault._(file);
   }

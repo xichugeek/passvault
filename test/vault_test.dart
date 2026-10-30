@@ -123,6 +123,19 @@ void main() {
       expect(v.root.entries, hasLength(2));
     });
 
+    test('没有 .kdbx 后缀的文件也能打开；非 KeePass 文件给出明确提示', () async {
+      final dir = Directory.systemTemp.createTempSync('pv');
+      final f = File('${dir.path}/james')..writeAsBytesSync(fx('keepassxcpasswords.kdbx'));
+      final v = await Vault.open(f.readAsBytesSync(), Credentials(ProtectedValue.fromString('asdf')));
+      expect(v.entries, isNotEmpty);
+      expect(
+        () => Vault.open(Uint8List.fromList('hello world, not a vault'.codeUnits),
+            Credentials(ProtectedValue.fromString('asdf'))),
+        throwsA(isA<NotKeePassFile>()),
+      );
+      dir.deleteSync(recursive: true);
+    });
+
     test('错误密码抛出 KdbxInvalidKeyException', () async {
       expect(
         () => Vault.open(fx('keepassxcpasswords.kdbx'), Credentials(ProtectedValue.fromString('wrong'))),
