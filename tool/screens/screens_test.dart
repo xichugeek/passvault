@@ -148,6 +148,8 @@ void main() {
     state.setSession(s!);
     debugDisableShadows = false;
     tester.view.physicalSize = size * dpr;
+    tester.view.resetPadding();
+    tester.view.resetViewPadding();
     if (size.width < 600) {
       // 模拟手机的状态栏和底部三键导航栏
       tester.view.padding = FakeViewPadding(top: 32 * dpr, bottom: 48 * dpr);
@@ -239,6 +241,30 @@ void main() {
     await tester.longPress(find.text('1.金融账户').first);
     await tester.pump(const Duration(milliseconds: 600));
     await shot(tester, 'popup_1_group_menu');
+
+    Offset handleCenter() {
+      final el = find.byType(MouseRegion).evaluate().where((e) {
+        return (e.widget as MouseRegion).cursor == SystemMouseCursors.resizeUpDown;
+      }).first;
+      return tester.getCenter(find.byElementPredicate((e) => e == el));
+    }
+
+    // 拖动条往上拖
+    await tester.dragFrom(handleCenter(), const Offset(0, -200), kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 400));
+    await shot(tester, 'popup_1b_menu_up');
+    // 按住菜单内容往下拖
+    await tester.dragFrom(tester.getCenter(find.text('更换图标')), const Offset(0, 300), kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 400));
+    await shot(tester, 'popup_1c_menu_down');
+    // 拖到底关闭
+    await tester.dragFrom(handleCenter(), const Offset(0, 900), kind: PointerDeviceKind.mouse);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+    expect(find.text('新建子分组'), findsNothing, reason: '拖到底应关闭');
+    await tester.longPress(find.text('1.金融账户').first);
+    await tester.pump(const Duration(milliseconds: 600));
 
     // 移动到…（分组选择）
     await tester.tap(find.text('移动到…'));

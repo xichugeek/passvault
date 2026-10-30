@@ -11,7 +11,11 @@ class _AnyPointerScroll extends MaterialScrollBehavior {
   Set<PointerDeviceKind> get dragDevices => PointerDeviceKind.values.toSet();
 }
 
-/// 拖动条：上下拖动可调整弹窗高度，往下拖到底关闭
+const _maxSize = 0.95;
+const _minSize = 0.08;
+const _handleHeight = 30.0;
+
+/// 拖动条：上下拖动调整弹窗高度，往下拖到底关闭
 class _DragHandle extends StatelessWidget {
   const _DragHandle({required this.onDrag, required this.onEnd});
 
@@ -28,7 +32,7 @@ class _DragHandle extends StatelessWidget {
         onVerticalDragUpdate: (d) => onDrag(d.delta.dy),
         onVerticalDragEnd: (_) => onEnd(),
         child: SizedBox(
-          height: 30,
+          height: _handleHeight,
           width: double.infinity,
           child: Center(
             child: Container(
@@ -46,93 +50,159 @@ class _DragHandle extends StatelessWidget {
   }
 }
 
-/// 菜单类弹窗：高度随内容自动适应，内容完整显示（超出屏幕时可滚动），
-/// 按住顶部拖动条或弹窗往下拖可关闭。
-Future<T?> showMenuSheet<T>(
-  BuildContext context, {
-  required List<Widget> Function(BuildContext sheetContext) children,
-}) {
-  final maxH = MediaQuery.sizeOf(context).height * 0.9;
-  return showModalBottomSheet<T>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (c) => ScrollConfiguration(
-      behavior: const _AnyPointerScroll(),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            bottom: 12 + MediaQuery.viewPaddingOf(c).bottom,
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: children(c)),
-        ),
-      ),
-    ),
-  );
+/// 统一的可拖动弹窗外壳
+class _SheetFrame extends StatefulWidget {
+  const _SheetFrame({
+    required this.initial,
+    required this.avail,
+    required this.fitToContent,
+    required this.builder,
+  });
+
+  final double initial;
+  final double avail;
+
+  /// 打开后测量内容实际高度，让弹窗刚好完整显示
+  final bool fitToContent;
+  final Widget Function(BuildContext context, ScrollController scroll, GlobalKey contentKey) builder;
+
+  @override
+  State<_SheetFrame> createState() => _SheetFrameState();
 }
 
-/// 列表类弹窗（选择分组、新建、图标等）：
-/// 初始高度按内容自动计算，尽量完整显示；拖动顶部拖动条可任意调整高度，
-/// 往下拖到底关闭；列表内容也可用鼠标直接拖动。
-Future<T?> showListSheet<T>(
+class _SheetFrameState extends State<_SheetFrame> {
+  final _ctl = DraggableScrollableController();
+  final _contentKey = GlobalKey();
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.fitToContent) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fit());
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  void _fit() {
+    if (!mounted || !_ctl.isAttached) return;
+    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
+    final h = box.size.height + _handleHeight + 12 + bottom;
+    _ctl.jumpTo((h / widget.avail).clamp(_minSize + 0.05, _maxSize).toDouble());
+  }
+
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    Navigator.maybePop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: const _AnyPointerScroll(),
+      child: NotificationListener<DraggableScrollableNotification>(
+        onNotification: (n) {
+          // 拖到最底部即关闭
+          if (n.extent <= _minSize + 0.01) _close();
+          return false;
+        },
+        child: DraggableScrollableSheet(
+          controller: _ctl,
+          expand: false,
+          initialChildSize: widget.initial,
+          minChildSize: _minSize,
+          maxChildSize: _maxSize,
+          builder: (c, scroll) => SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                _DragHandle(
+                  onDrag: (dy) {
+                    if (!_ctl.isAttached) return;
+                    _ctl.jumpTo((_ctl.size - dy / widget.avail).clamp(_minSize, _maxSize).toDouble());
+                  },
+                  onEnd: () {
+                    if (_ctl.isAttached && _ctl.size < 0.18) _close();
+                  },
+                ),
+                Expanded(child: widget.builder(c, scroll, _contentKey)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<T?> _show<T>(
   BuildContext context, {
-  required double contentHeight,
-  required Widget Function(BuildContext sheetContext, ScrollController scroll)
-  builder,
+  required double estimatedHeight,
+  required bool fitToContent,
+  required Widget Function(BuildContext, ScrollController, GlobalKey) builder,
 }) {
   final mq = MediaQuery.of(context);
   final avail = math.max(200.0, mq.size.height - mq.padding.top);
-  const maxSize = 0.95;
-  final init = ((contentHeight + 30 + mq.viewPadding.bottom) / avail)
-      .clamp(0.3, maxSize)
+  final init = ((estimatedHeight + _handleHeight + 12 + mq.viewPadding.bottom) / avail)
+      .clamp(0.25, _maxSize)
       .toDouble();
-  final ctl = DraggableScrollableController();
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: false,
-    builder: (c) => ScrollConfiguration(
-      behavior: const _AnyPointerScroll(),
-      child: DraggableScrollableSheet(
-        controller: ctl,
-        expand: false,
-        initialChildSize: init,
-        minChildSize: math.min(0.2, init),
-        maxChildSize: maxSize,
-        // 底部留出系统导航栏的高度，避免最后一项被挡住
-        builder: (c, scroll) => SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              _DragHandle(
-                onDrag: (dy) {
-                  if (!ctl.isAttached) return;
-                  ctl.jumpTo((ctl.size - dy / avail).clamp(0.12, maxSize));
-                },
-                onEnd: () {
-                  if (ctl.isAttached && ctl.size < 0.2) Navigator.maybePop(c);
-                },
-              ),
-              Expanded(child: builder(c, scroll)),
-            ],
-          ),
-        ),
-      ),
+    // 拖动由弹窗自己处理（可上下拖、拖到底关闭）
+    enableDrag: false,
+    builder: (c) => _SheetFrame(
+      initial: init,
+      avail: avail,
+      fitToContent: fitToContent,
+      builder: builder,
     ),
   );
 }
 
-/// 页面列表的底部留白：额外留白 + 系统导航栏高度
-EdgeInsets pagePadding(
+/// 菜单类弹窗：打开时自动量好高度，刚好完整显示；
+/// 按住顶部拖动条或弹窗内容可上下拖动，拖到底关闭。
+Future<T?> showMenuSheet<T>(
   BuildContext context, {
-  double h = 16,
-  double top = 8,
-  double bottom = 32,
-}) => EdgeInsets.fromLTRB(
-  h,
-  top,
-  h,
-  bottom + MediaQuery.paddingOf(context).bottom,
-);
+  required List<Widget> Function(BuildContext sheetContext) children,
+}) {
+  return _show<T>(
+    context,
+    estimatedHeight: 420,
+    fitToContent: true,
+    builder: (c, scroll, key) => SingleChildScrollView(
+      controller: scroll,
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(key: key, mainAxisSize: MainAxisSize.min, children: children(c)),
+    ),
+  );
+}
+
+/// 列表类弹窗（选择分组、新建、图标等）：初始高度按内容估算，尽量完整显示；
+/// 按住顶部拖动条或列表可上下拖动，拖到底关闭。
+Future<T?> showListSheet<T>(
+  BuildContext context, {
+  required double contentHeight,
+  required Widget Function(BuildContext sheetContext, ScrollController scroll) builder,
+}) {
+  return _show<T>(
+    context,
+    estimatedHeight: contentHeight,
+    fitToContent: false,
+    builder: (c, scroll, _) => builder(c, scroll),
+  );
+}
+
+/// 页面列表的底部留白：额外留白 + 系统导航栏高度
+EdgeInsets pagePadding(BuildContext context, {double h = 16, double top = 8, double bottom = 32}) =>
+    EdgeInsets.fromLTRB(h, top, h, bottom + MediaQuery.paddingOf(context).bottom);
